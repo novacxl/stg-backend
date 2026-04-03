@@ -1,0 +1,19 @@
+# FIX-CRITICO-6: target/ NUNCA deve ser versionado
+target/
+
+# Credenciais locais
+*.properties.local
+.env
+.env.local
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.classpath
+*.project
+*.settings/
+
+# OS
+.DS_Store
+Thumbs.db
