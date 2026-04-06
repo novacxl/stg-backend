@@ -22,10 +22,6 @@ public class User {
     @Column(nullable = false)
     private String password;
 
-    // CPF armazenado só os dígitos (11 chars), sem pontuação
-    @Column(length = 11)
-    private String cpf;
-
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Role role;
@@ -45,56 +41,67 @@ public class User {
     private List<Product> wishlist = new ArrayList<>();
 
     @PrePersist
-    protected void onCreate() { this.createdAt = LocalDate.now(); }
+    protected void onCreate() {
+        this.createdAt = LocalDate.now();
+    }
 
     public enum Role { OWNER, ADMIN, CLIENT }
 
+    // ── Construtores ──
     public User() {}
 
     public User(Long id, String name, String email, String password, Role role) {
-        this.id = id; this.name = name; this.email = email;
-        this.password = password; this.role = role;
+        this.id = id;
+        this.name = name;
+        this.email = email;
+        this.password = password;
+        this.role = role;
     }
 
+    // ── Builder estático ──
     public static Builder builder() { return new Builder(); }
 
     public static class Builder {
         private Long id;
-        private String name, email, password, cpf;
+        private String name;
+        private String email;
+        private String password;
         private Role role;
 
-        public Builder id(Long v)       { this.id = v; return this; }
-        public Builder name(String v)   { this.name = v; return this; }
-        public Builder email(String v)  { this.email = v; return this; }
-        public Builder password(String v){ this.password = v; return this; }
-        public Builder cpf(String v)    { this.cpf = v; return this; }
-        public Builder role(Role v)     { this.role = v; return this; }
+        public Builder id(Long id)           { this.id = id; return this; }
+        public Builder name(String name)     { this.name = name; return this; }
+        public Builder email(String email)   { this.email = email; return this; }
+        public Builder password(String pw)   { this.password = pw; return this; }
+        public Builder role(Role role)       { this.role = role; return this; }
 
         public User build() {
             User u = new User();
-            u.id = id; u.name = name; u.email = email;
-            u.password = password; u.cpf = cpf; u.role = role;
+            u.id = this.id;
+            u.name = this.name;
+            u.email = this.email;
+            u.password = this.password;
+            u.role = this.role;
             return u;
         }
     }
 
-    public Long getId()             { return id; }
-    public String getName()         { return name; }
-    public String getEmail()        { return email; }
-    public String getPassword()     { return password; }
-    public String getCpf()          { return cpf; }
-    public Role getRole()           { return role; }
-    public LocalDate getCreatedAt() { return createdAt; }
-    public List<Order> getOrders()  { return orders; }
+    // ── Getters ──
+    public Long getId()            { return id; }
+    public String getName()        { return name; }
+    public String getEmail()       { return email; }
+    public String getPassword()    { return password; }
+    public Role getRole()          { return role; }
+    public LocalDate getCreatedAt(){ return createdAt; }
+    public List<Order> getOrders() { return orders; }
     public List<Product> getWishlist() { return wishlist; }
 
-    public void setId(Long v)           { this.id = v; }
-    public void setName(String v)       { this.name = v; }
-    public void setEmail(String v)      { this.email = v; }
-    public void setPassword(String v)   { this.password = v; }
-    public void setCpf(String v)        { this.cpf = v; }
-    public void setRole(Role v)         { this.role = v; }
-    public void setCreatedAt(LocalDate v){ this.createdAt = v; }
-    public void setOrders(List<Order> v){ this.orders = v; }
-    public void setWishlist(List<Product> v){ this.wishlist = v; }
+    // ── Setters ──
+    public void setId(Long id)           { this.id = id; }
+    public void setName(String name)     { this.name = name; }
+    public void setEmail(String email)   { this.email = email; }
+    public void setPassword(String pw)   { this.password = pw; }
+    public void setRole(Role role)       { this.role = role; }
+    public void setCreatedAt(LocalDate d){ this.createdAt = d; }
+    public void setOrders(List<Order> o) { this.orders = o; }
+    public void setWishlist(List<Product> w) { this.wishlist = w; }
 }

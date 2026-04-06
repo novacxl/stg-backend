@@ -22,6 +22,8 @@ public class AuthService {
 
     private static final int  MAX_ATTEMPTS = 10;
     private static final long WINDOW_MS    = 15 * 60 * 1000L;
+
+    // Rate limiting por email E por IP
     private final ConcurrentHashMap<String, long[]> loginAttempts = new ConcurrentHashMap<>();
 
     private final UserRepository       userRepository;
@@ -44,6 +46,8 @@ public class AuthService {
 
     public AuthDTOs.AuthResponse login(AuthDTOs.LoginRequest req) {
         String ip = getClientIp();
+
+        // Rate limit por email e por IP (dupla proteção)
         checkRateLimit(req.email());
         checkRateLimit("ip:" + ip);
 
@@ -74,22 +78,10 @@ public class AuthService {
             throw new IllegalArgumentException("Nao foi possivel criar a conta com esses dados.");
         }
 
-        // Limpa CPF — armazena só os 11 dígitos
-        String cpfLimpo = req.cpf().replaceAll("[^0-9]", "");
-        if (cpfLimpo.length() != 11) {
-            throw new IllegalArgumentException("CPF inválido.");
-        }
-
-        // Validação básica de CPF (evita sequências óbvias como 111.111.111-11)
-        if (!isCpfValido(cpfLimpo)) {
-            throw new IllegalArgumentException("CPF inválido.");
-        }
-
         User user = User.builder()
             .name(req.name().trim())
             .email(req.email().toLowerCase().trim())
             .password(passwordEncoder.encode(req.password()))
-            .cpf(cpfLimpo)
             .role(User.Role.CLIENT)
             .build();
 
@@ -101,54 +93,52 @@ public class AuthService {
         return new AuthDTOs.AuthResponse(token, toUserDTO(user));
     }
 
-    // Validação matemática básica do CPF
-    private boolean isCpfValido(String cpf) {
-        if (cpf.chars().distinct().count() == 1) return false; // todos iguais
-        int[] d = cpf.chars().map(c -> c - '0').toArray();
-        int s1 = 0, s2 = 0;
-        for (int i = 0; i < 9; i++) s1 += d[i] * (10 - i);
-        int r1 = (s1 * 10) % 11; if (r1 == 10 || r1 == 11) r1 = 0;
-        if (r1 != d[9]) return false;
-        for (int i = 0; i < 10; i++) s2 += d[i] * (11 - i);
-        int r2 = (s2 * 10) % 11; if (r2 == 10 || r2 == 11) r2 = 0;
-        return r2 == d[10];
-    }
-
     private void checkRateLimit(String key) {
         long now = System.currentTimeMillis();
         long[] data = loginAttempts.get(key);
         if (data != null) {
-            if (now - data[0] < WINDOW_MS && (int) data[1] >= MAX_ATTEMPTS) {
-                log.warning("Rate limit: " + key);
-                throw new IllegalArgumentException("Muitas tentativas. Tente em 15 minutos.");
+            long windowStart = data[0];
+            int  count       = (int) data[1];
+            if (now - windowStart < WINDOW_MS && count >= MAX_ATTEMPTS) {
+                log.warning("Rate limit atingido: " + key);
+                throw new IllegalArgumentException("Muitas tentativas. Tente novamente em 15 minutos.");
             }
-            if (now - data[0] >= WINDOW_MS) loginAttempts.remove(key);
+            if (now - windowStart >= WINDOW_MS) {
+                loginAttempts.remove(key);
+            }
         }
     }
 
     private void registerFailedAttempt(String key) {
         long now = System.currentTimeMillis();
         loginAttempts.compute(key, (k, data) -> {
-            if (data == null || now - data[0] >= WINDOW_MS) return new long[]{ now, 1 };
-            data[1]++; return data;
+            if (data == null || now - data[0] >= WINDOW_MS)
+                return new long[]{ now, 1 };
+            data[1]++;
+            return data;
         });
     }
 
     private String getClientIp() {
         try {
-            ServletRequestAttributes a =
+            ServletRequestAttributes attrs =
                 (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-            if (a == null) return "unknown";
-            HttpServletRequest req = a.getRequest();
-            String fwd = req.getHeader("X-Forwarded-For");
-            return (fwd != null && !fwd.isBlank()) ? fwd.split(",")[0].trim() : req.getRemoteAddr();
-        } catch (Exception e) { return "unknown"; }
+            if (attrs == null) return "unknown";
+            HttpServletRequest req = attrs.getRequest();
+            String forwarded = req.getHeader("X-Forwarded-For");
+            if (forwarded != null && !forwarded.isBlank()) {
+                return forwarded.split(",")[0].trim();
+            }
+            return req.getRemoteAddr();
+        } catch (Exception e) {
+            return "unknown";
+        }
     }
 
-    public AuthDTOs.UserDTO toUserDTO(User u) {
+    private AuthDTOs.UserDTO toUserDTO(User u) {
         int spent = u.getOrders().stream().mapToInt(o -> o.getTotal()).sum();
         return new AuthDTOs.UserDTO(
-            u.getId(), u.getName(), u.getEmail(), u.getCpf(),
+            u.getId(), u.getName(), u.getEmail(),
             u.getRole().name(), u.getCreatedAt(),
             u.getOrders().size(), spent
         );

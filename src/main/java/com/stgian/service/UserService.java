@@ -26,7 +26,7 @@ public class UserService {
         User u = getOrThrow(userId);
         int spent = u.getOrders().stream().mapToInt(o -> o.getTotal()).sum();
         return new AuthDTOs.UserDTO(
-            u.getId(), u.getName(), u.getEmail(), u.getCpf(),
+            u.getId(), u.getName(), u.getEmail(),
             u.getRole().name(), u.getCreatedAt(),
             u.getOrders().size(), spent
         );

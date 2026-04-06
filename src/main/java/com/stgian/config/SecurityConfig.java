@@ -74,8 +74,6 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/drops/active").permitAll()
                 .requestMatchers("/api/payments/webhook").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/payments/success").permitAll()
-                .requestMatchers(HttpMethod.POST, "/api/payments/confirm").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/payments/status/**").permitAll()
 
                 // Cliente, ADM e Dono
                 .requestMatchers("/api/orders/checkout").hasAnyRole("CLIENT","ADMIN","OWNER")

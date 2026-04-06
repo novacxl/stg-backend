@@ -29,27 +29,28 @@ public class PaymentService {
     @Value("${stgian.frontend-url}")
     private String frontendUrl;
 
+    // E-mail da sua conta MP vendedora — preencha no application.properties
     @Value("${stgian.mp-seller-email:}")
     private String sellerEmail;
 
     @PostConstruct
     public void init() {
         MercadoPagoConfig.setAccessToken(accessToken);
-        log.info("Mercado Pago configurado. Sandbox=" + accessToken.startsWith("TEST-"));
+        boolean isSandbox = accessToken.startsWith("TEST-");
+        log.info("Mercado Pago configurado. Sandbox=" + isSandbox);
     }
 
     public PreferenceResult createPreference(Order order) {
         try {
             boolean isSandbox = accessToken.startsWith("TEST-");
-            String chosenMethod = order.getPaymentMethod(); // "pix", "credit_card" ou "debit_card"
-            log.info("Metodo de pagamento escolhido: " + chosenMethod);
 
             // ── Itens ─────────────────────────────────────────────────────
             List<PreferenceItemRequest> mpItems = new ArrayList<>();
             for (OrderItem item : order.getItems()) {
                 BigDecimal unitPrice = new BigDecimal(item.getUnitPrice());
                 log.info("Item: " + item.getProduct().getName()
-                    + " | Preco: R$" + unitPrice + " | Qtd: " + item.getQuantity());
+                    + " | Preco: R$" + unitPrice
+                    + " | Qtd: " + item.getQuantity());
 
                 mpItems.add(PreferenceItemRequest.builder()
                     .id(String.valueOf(item.getProduct().getId()))
@@ -61,67 +62,79 @@ public class PaymentService {
             }
 
             // ── Payer ─────────────────────────────────────────────────────
-            String buyerEmail = order.getUser().getEmail();
-            boolean isSelfPurchase = !sellerEmail.isBlank()
-                && sellerEmail.equalsIgnoreCase(buyerEmail);
+            // Só envia o payer se o e-mail do comprador for DIFERENTE
+            // do e-mail do vendedor — MP bloqueia auto-pagamento em produção
+            String buyerEmail = order.getShippingEmail() != null
+                ? order.getShippingEmail()
+                : order.getUser().getEmail();
 
-            // ── Configurar métodos de pagamento baseado na escolha ────────
-            // A API do MP não tem "ir direto para PIX" — a solução é EXCLUIR
-            // os outros métodos, deixando apenas o escolhido disponível.
-            PreferencePaymentMethodsRequest paymentMethods = buildPaymentMethods(chosenMethod);
-
-            // ── Builder base ──────────────────────────────────────────────
             PreferenceRequest.PreferenceRequestBuilder builder = PreferenceRequest.builder()
                 .items(mpItems)
-                .paymentMethods(paymentMethods)
                 .externalReference(order.getOrderCode())
                 .statementDescriptor("STGIAN");
 
-            // Adiciona payer só se não for o próprio vendedor
+            // Só adiciona payer se não for o próprio vendedor
+            boolean isSelfPurchase = !sellerEmail.isBlank()
+                && sellerEmail.equalsIgnoreCase(buyerEmail);
+
             if (!isSelfPurchase) {
                 builder.payer(PreferencePayerRequest.builder()
                     .email(buyerEmail)
                     .build());
-                log.info("Payer: " + buyerEmail);
+                log.info("Payer definido: " + buyerEmail);
             } else {
-                log.warning("Auto-compra detectada — payer omitido.");
+                log.warning("Comprador é o vendedor — payer omitido para evitar bloqueio do MP.");
             }
 
-            // ── Webhook ───────────────────────────────────────────────────
-            boolean isLocalBackend = baseUrl.contains("localhost") || baseUrl.contains("127.0.0.1");
-            if (!isLocalBackend) {
-                builder.notificationUrl(baseUrl + "/api/payments/webhook");
-                log.info("Webhook ativo: " + baseUrl + "/api/payments/webhook");
-            } else {
-                log.warning("BASE_URL é localhost — webhook desativado. Use ngrok!");
-            }
+            // ── Métodos de pagamento ──────────────────────────────────────
+            // Sem exclusões = aceita PIX, crédito, débito e boleto
+            // installments só se aplica a crédito
+            builder.paymentMethods(
+                PreferencePaymentMethodsRequest.builder()
+                    .installments(12)
+                    .defaultInstallments(1)
+                    .build()
+            );
 
-            // ── Back URLs ─────────────────────────────────────────────────
+            // ── URLs de retorno ───────────────────────────────────────────
             boolean isLocalFrontend = frontendUrl.contains("localhost")
                 || frontendUrl.contains("127.0.0.1")
                 || frontendUrl.startsWith("file://");
 
+            boolean isLocalBackend = baseUrl.contains("localhost")
+                || baseUrl.contains("127.0.0.1");
+
             if (!isLocalFrontend) {
+                // Tenta identificar o nome do arquivo HTML para o retorno correto
+                String htmlFile = "index.html";
                 builder.backUrls(PreferenceBackUrlsRequest.builder()
                     .success(frontendUrl + "?payment=success&order=" + order.getOrderCode())
                     .failure(frontendUrl + "?payment=failure&order=" + order.getOrderCode())
                     .pending(frontendUrl + "?payment=pending&order=" + order.getOrderCode())
                     .build())
                     .autoReturn("approved");
-                log.info("BackUrls: " + frontendUrl);
+                log.info("BackUrls configuradas: " + frontendUrl);
+            } else {
+                log.info("Frontend local — backUrls omitidas.");
             }
 
-            // ── Criar preferência no MP ───────────────────────────────────
+            if (!isLocalBackend) {
+                builder.notificationUrl(baseUrl + "/api/payments/webhook");
+            } else {
+                log.info("Backend local — webhook omitido.");
+            }
+
+            // ── Criar preferência ─────────────────────────────────────────
             PreferenceClient client = new PreferenceClient();
             Preference preference = client.create(builder.build());
 
+            // Sandbox usa sandboxInitPoint; produção usa initPoint
             String checkoutUrl = (isSandbox && preference.getSandboxInitPoint() != null)
                 ? preference.getSandboxInitPoint()
                 : preference.getInitPoint();
 
-            log.info("Preferencia criada! ID=" + preference.getId()
+            log.info("Preferencia MP criada! ID=" + preference.getId()
                 + " | Pedido=" + order.getOrderCode()
-                + " | Metodo=" + chosenMethod
                 + " | Sandbox=" + isSandbox
                 + " | URL=" + checkoutUrl);
 
@@ -140,72 +153,6 @@ public class PaymentService {
             log.severe("Erro inesperado: " + e.getMessage());
             throw new RuntimeException("Erro ao iniciar pagamento: " + e.getMessage());
         }
-    }
-
-    /**
-     * Constrói a configuração de métodos de pagamento baseado na escolha do cliente.
-     *
-     * A API do MP não permite redirecionar direto para um método — a solução
-     * é excluir os outros, deixando apenas o escolhido disponível.
-     *
-     * Tipos de pagamento na API do MP:
-     *   - "credit_card"  → cartão de crédito
-     *   - "debit_card"   → cartão de débito
-     *   - "bank_transfer" → PIX e transferências bancárias
-     *   - "ticket"       → boleto bancário
-     *   - "atm"          → pagamento em lotérica
-     */
-    private PreferencePaymentMethodsRequest buildPaymentMethods(String chosenMethod) {
-        PreferencePaymentMethodsRequest.PreferencePaymentMethodsRequestBuilder builder =
-            PreferencePaymentMethodsRequest.builder()
-                .installments(12)
-                .defaultInstallments(1);
-
-        if (chosenMethod == null || chosenMethod.isBlank()) {
-            // Nenhum método específico — aceita tudo
-            log.info("Sem metodo especifico — todos disponiveis.");
-            return builder.build();
-        }
-
-        List<PreferencePaymentTypeRequest> excluded = new ArrayList<>();
-
-        switch (chosenMethod) {
-            case "pix" -> {
-                // PIX = bank_transfer → excluir cartões e boleto
-                excluded.add(PreferencePaymentTypeRequest.builder().id("credit_card").build());
-                excluded.add(PreferencePaymentTypeRequest.builder().id("debit_card").build());
-                excluded.add(PreferencePaymentTypeRequest.builder().id("ticket").build());
-                excluded.add(PreferencePaymentTypeRequest.builder().id("atm").build());
-                // PIX não tem parcelamento
-                builder.installments(1).defaultInstallments(1);
-                log.info("Metodo: PIX — cartoes e boleto excluidos.");
-            }
-            case "credit_card" -> {
-                // Crédito → excluir PIX, débito e boleto
-                excluded.add(PreferencePaymentTypeRequest.builder().id("bank_transfer").build());
-                excluded.add(PreferencePaymentTypeRequest.builder().id("debit_card").build());
-                excluded.add(PreferencePaymentTypeRequest.builder().id("ticket").build());
-                excluded.add(PreferencePaymentTypeRequest.builder().id("atm").build());
-                log.info("Metodo: Cartao de Credito — PIX e debito excluidos.");
-            }
-            case "debit_card" -> {
-                // Débito → excluir PIX, crédito e boleto
-                excluded.add(PreferencePaymentTypeRequest.builder().id("bank_transfer").build());
-                excluded.add(PreferencePaymentTypeRequest.builder().id("credit_card").build());
-                excluded.add(PreferencePaymentTypeRequest.builder().id("ticket").build());
-                excluded.add(PreferencePaymentTypeRequest.builder().id("atm").build());
-                // Débito não tem parcelamento
-                builder.installments(1).defaultInstallments(1);
-                log.info("Metodo: Cartao de Debito — PIX e credito excluidos.");
-            }
-            default -> log.warning("Metodo desconhecido: " + chosenMethod + " — aceitando todos.");
-        }
-
-        if (!excluded.isEmpty()) {
-            builder.excludedPaymentTypes(excluded);
-        }
-
-        return builder.build();
     }
 
     public String resolvePaymentStatus(String mpStatus) {

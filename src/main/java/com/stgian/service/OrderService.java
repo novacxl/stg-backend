@@ -179,12 +179,6 @@ public class OrderService {
         return OrderDTOs.OrderResponse.from(order);
     }
 
-    public OrderDTOs.OrderResponse getByCode(String orderCode) {
-        Order order = orderRepository.findByOrderCode(orderCode)
-            .orElseThrow(() -> new RuntimeException("Pedido nao encontrado: " + orderCode));
-        return OrderDTOs.OrderResponse.from(order);
-    }
-
     @Transactional
     public OrderDTOs.OrderResponse updateStatus(Long orderId, OrderDTOs.StatusUpdateRequest req) {
         Order order = orderRepository.findById(orderId)
