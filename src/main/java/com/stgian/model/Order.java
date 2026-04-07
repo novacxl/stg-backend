@@ -1,7 +1,6 @@
 package com.stgian.model;
 
 import jakarta.persistence.*;
-import jakarta.persistence.Index;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -9,10 +8,9 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "orders", indexes = {
-    @Index(name = "idx_order_code",      columnList = "order_code"),
-    @Index(name = "idx_order_user",      columnList = "user_id"),
-    @Index(name = "idx_order_status",    columnList = "status"),
-    @Index(name = "idx_order_created",   columnList = "created_at")
+    @Index(name = "idx_order_code",   columnList = "order_code"),
+    @Index(name = "idx_order_user",   columnList = "user_id"),
+    @Index(name = "idx_order_status", columnList = "status,payment_status")
 })
 public class Order {
 
@@ -69,7 +67,6 @@ public class Order {
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
         if (this.orderCode == null)
-            // FIX-BAIXO-2: UUID garante unicidade — Math.random() tem apenas 8999 valores possíveis
             this.orderCode = "STG-" + UUID.randomUUID().toString()
                 .replace("-", "").substring(0, 8).toUpperCase();
         if (this.paymentStatus == null)
@@ -77,15 +74,14 @@ public class Order {
     }
 
     public enum Status {
-        PENDING_PAYMENT,
-        PROCESSING,
-        SHIPPED,
-        DELIVERED,
-        CANCELLED
+        PENDING_PAYMENT,  // aguardando pagamento
+        PROCESSING,       // pagamento confirmado, preparando envio
+        SHIPPED,          // enviado
+        DELIVERED,        // entregue
+        CANCELLED         // cancelado
     }
 
     public Order() {}
-
     public static Builder builder() { return new Builder(); }
 
     public static class Builder {
@@ -125,7 +121,6 @@ public class Order {
         }
     }
 
-    // ── Getters ──
     public Long getId()                   { return id; }
     public String getOrderCode()          { return orderCode; }
     public User getUser()                 { return user; }
@@ -154,7 +149,6 @@ public class Order {
     public String getTrackingStatus()     { return trackingStatus; }
     public LocalDateTime getTrackingUpdatedAt() { return trackingUpdatedAt; }
 
-    // ── Setters ──
     public void setId(Long v)                    { this.id = v; }
     public void setOrderCode(String v)           { this.orderCode = v; }
     public void setUser(User v)                  { this.user = v; }

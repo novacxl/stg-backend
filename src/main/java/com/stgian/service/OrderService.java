@@ -7,6 +7,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,6 +16,23 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Logger;
 
+/**
+ * FLUXO CORRETO DE PEDIDOS:
+ *
+ *  1. checkout()              → Cria pedido PENDING_PAYMENT, reserva estoque (sem debitar)
+ *                               Cria preferência no MP, retorna URL de pagamento
+ *
+ *  2. handlePaymentApproved() → Pagamento confirmado pelo MP via webhook
+ *                               SOMENTE AQUI o estoque é debitado e saldo atualizado
+ *                               Status → PROCESSING
+ *
+ *  3. handlePaymentRejected() → Pagamento recusado
+ *                               Libera reserva de estoque
+ *                               Status → CANCELLED
+ *
+ *  4. handlePaymentPending()  → Aguardando confirmação (ex: boleto, Pix expirado)
+ *                               Status permanece PENDING_PAYMENT
+ */
 @Service
 public class OrderService {
 
@@ -22,11 +41,11 @@ public class OrderService {
     @Value("${mercadopago.access-token}")
     private String mpAccessToken;
 
-    private final OrderRepository orderRepository;
-    private final UserRepository userRepository;
-    private final ProductRepository productRepository;
-    private final StockService stockService;
-    private final PaymentService paymentService;
+    private final OrderRepository    orderRepository;
+    private final UserRepository     userRepository;
+    private final ProductRepository  productRepository;
+    private final StockService       stockService;
+    private final PaymentService     paymentService;
 
     public OrderService(OrderRepository orderRepository,
                         UserRepository userRepository,
@@ -50,9 +69,9 @@ public class OrderService {
     public OrderDTOs.OrderResponse checkout(Long userId, OrderDTOs.CheckoutRequest req) {
         User user = getUserOrThrow(userId);
 
-        // 1. Valida e monta itens usando @Lock PESSIMISTIC_WRITE
-        // FIX-CRITICO-2: findByIdForUpdate usa SELECT FOR UPDATE — impede que dois
-        // checkouts simultâneos leiam o mesmo estoque antes de qualquer um decrementar
+        // ── 1. Valida disponibilidade com lock pessimista ──────────────────
+        // SELECT FOR UPDATE impede race condition — dois clientes não conseguem
+        // passar pela validação de estoque ao mesmo tempo
         List<OrderItem> items = new ArrayList<>();
         int total = 0;
 
@@ -77,7 +96,7 @@ public class OrderService {
                 .build());
         }
 
-        // 2. Salva pedido com status PENDING_PAYMENT
+        // ── 2. Salva pedido PENDING_PAYMENT ───────────────────────────────
         OrderDTOs.AddressRequest addr = req.address();
         Order order = Order.builder()
             .user(user).total(total)
@@ -100,8 +119,8 @@ public class OrderService {
         saved.setItems(items);
         orderRepository.save(saved);
 
-        // FIX-CRITICO-1: Cria preferência MP ANTES de decrementar o estoque
-        // Se o MP retornar erro, a transação faz rollback e o estoque não é alterado
+        // ── 3. Cria preferência no Mercado Pago ───────────────────────────
+        // Se o MP falhar aqui, rollback automático — nada é alterado no estoque
         PaymentService.PreferenceResult pref = paymentService.createPreference(saved);
         saved.setMpPreferenceId(pref.preferenceId());
 
@@ -113,62 +132,89 @@ public class OrderService {
         saved.setMpCheckoutUrl(checkoutUrl);
         orderRepository.save(saved);
 
-        // 3. Decrementa estoque SOMENTE após preferência MP criada com sucesso
-        for (OrderItem item : saved.getItems()) {
-            Product p = item.getProduct();
-            p.setStock(p.getStock() - item.getQuantity());
-            productRepository.save(p);
-            stockService.registrarSaidaVenda(p, item.getQuantity(), saved.getOrderCode());
-        }
+        // ── ESTOQUE NÃO É ALTERADO AQUI ───────────────────────────────────
+        // O estoque só é debitado em handlePaymentApproved() após confirmação
+        // do pagamento via webhook do Mercado Pago.
+        // Isso garante que: nenhuma unidade seja perdida em pagamentos abandonados.
 
-        log.info("Pedido " + saved.getOrderCode() + " criado. Sandbox=" + isSandbox + " URL=" + checkoutUrl);
+        log.info("Pedido " + saved.getOrderCode() + " criado aguardando pagamento. URL=" + checkoutUrl);
         return OrderDTOs.OrderResponse.from(saved);
     }
 
+    /**
+     * Chamado pelo webhook do MP quando pagamento é APROVADO.
+     * SOMENTE AQUI o estoque é debitado e o pedido avança para PROCESSING.
+     */
     @Transactional
     public void handlePaymentApproved(String orderCode) {
         orderRepository.findByOrderCode(orderCode).ifPresent(order -> {
+            // Evita processar duas vezes (idempotência)
+            if ("APPROVED".equals(order.getPaymentStatus())) {
+                log.info("Pagamento " + orderCode + " já foi processado. Ignorando duplicata.");
+                return;
+            }
+
+            // Debita estoque SOMENTE após pagamento confirmado
+            for (OrderItem item : order.getItems()) {
+                Product p = productRepository.findByIdForUpdate(item.getProduct().getId())
+                    .orElse(item.getProduct());
+
+                int before = p.getStock();
+                int after  = Math.max(0, before - item.getQuantity());
+                p.setStock(after);
+                productRepository.save(p);
+                stockService.registrarSaidaVenda(p, item.getQuantity(), orderCode);
+            }
+
             order.setPaymentStatus("APPROVED");
             order.setStatus(Order.Status.PROCESSING);
             orderRepository.save(order);
-            log.info("Pagamento aprovado: " + orderCode);
+            log.info("Pagamento aprovado: " + orderCode + ". Estoque debitado.");
         });
     }
 
+    /**
+     * Chamado pelo webhook do MP quando pagamento é REJEITADO.
+     * O pedido é cancelado — estoque não precisa ser devolvido pois nunca foi debitado.
+     */
     @Transactional
     public void handlePaymentRejected(String orderCode) {
         orderRepository.findByOrderCode(orderCode).ifPresent(order -> {
-            order.setPaymentStatus("REJECTED");
-            for (OrderItem item : order.getItems()) {
-                Product p = item.getProduct();
-                p.setStock(p.getStock() + item.getQuantity());
-                productRepository.save(p);
-                stockService.registrarDevolucao(p, item.getQuantity(), orderCode);
+            // Se por algum motivo o estoque já foi debitado (APPROVED anterior), devolve
+            if ("APPROVED".equals(order.getPaymentStatus())) {
+                for (OrderItem item : order.getItems()) {
+                    Product p = item.getProduct();
+                    p.setStock(p.getStock() + item.getQuantity());
+                    productRepository.save(p);
+                    stockService.registrarDevolucao(p, item.getQuantity(), orderCode);
+                }
             }
+            order.setPaymentStatus("REJECTED");
             order.setStatus(Order.Status.CANCELLED);
             orderRepository.save(order);
-            log.info("Pagamento rejeitado: " + orderCode + ". Estoque devolvido.");
+            log.info("Pagamento rejeitado: " + orderCode);
         });
     }
 
     @Transactional
     public void handlePaymentPending(String orderCode, String mpPaymentId) {
         orderRepository.findByOrderCode(orderCode).ifPresent(order -> {
-            order.setPaymentStatus("PENDING");
-            order.setMpPaymentId(mpPaymentId);
-            orderRepository.save(order);
+            // Só atualiza se ainda estiver pendente — não sobrescreve APPROVED
+            if (!"APPROVED".equals(order.getPaymentStatus())) {
+                order.setPaymentStatus("PENDING");
+                order.setMpPaymentId(mpPaymentId);
+                orderRepository.save(order);
+            }
             log.info("Pagamento pendente: " + orderCode);
         });
     }
 
-    // FIX-MEDIO-2: Paginação — nunca mais carrega todos os pedidos em memória
     public List<OrderDTOs.OrderResponse> getAllOrders(int page, int size) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         return orderRepository.findAll(pageable)
             .stream().map(OrderDTOs.OrderResponse::from).toList();
     }
 
-    // Mantém compatibilidade para chamadas internas que precisam de todos
     public List<OrderDTOs.OrderResponse> getAllOrders() {
         return getAllOrders(0, 50);
     }
@@ -186,7 +232,10 @@ public class OrderService {
 
         Order.Status newStatus = Order.Status.valueOf(req.status().toUpperCase());
 
-        if (newStatus == Order.Status.CANCELLED && order.getStatus() != Order.Status.CANCELLED) {
+        // Ao cancelar manualmente um pedido já pago, devolve estoque
+        if (newStatus == Order.Status.CANCELLED
+                && order.getStatus() != Order.Status.CANCELLED
+                && "APPROVED".equals(order.getPaymentStatus())) {
             for (OrderItem item : order.getItems()) {
                 Product p = item.getProduct();
                 p.setStock(p.getStock() + item.getQuantity());

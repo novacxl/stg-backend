@@ -16,7 +16,11 @@ public class ProductService {
         this.productRepository = productRepository;
     }
 
-    public List<ProductDTOs.ProductResponse> findAll(String category) {
+    /**
+     * PERF-2: Lista retorna ProductSummary (sem imageData).
+     * Economiza até 95% do payload quando produtos têm imagens.
+     */
+    public List<ProductDTOs.ProductSummary> findAll(String category) {
         List<Product> products;
         if (category != null && !category.isBlank()) {
             Product.Category cat;
@@ -29,9 +33,13 @@ public class ProductService {
         } else {
             products = productRepository.findByActiveTrue();
         }
-        return products.stream().map(ProductDTOs.ProductResponse::from).toList();
+        return products.stream().map(ProductDTOs.ProductSummary::from).toList();
     }
 
+    /**
+     * Produto individual retorna ProductResponse completo (com imageData).
+     * Chamado apenas ao abrir a página do produto.
+     */
     public ProductDTOs.ProductResponse findById(Long id) {
         return ProductDTOs.ProductResponse.from(getOrThrow(id));
     }
@@ -57,9 +65,9 @@ public class ProductService {
         p.setPrice(req.price());
         p.setCategory(parseCategory(req.category()));
         p.setBadge(parseBadge(req.badge()));
-        if (req.stock() != null) p.setStock(req.stock());
-        if (req.icon() != null)  p.setIcon(req.icon());
-        if (req.imageData() != null) p.setImageData(req.imageData());
+        if (req.stock()    != null) p.setStock(req.stock());
+        if (req.icon()     != null) p.setIcon(req.icon());
+        if (req.imageData()!= null) p.setImageData(req.imageData());
         return ProductDTOs.ProductResponse.from(productRepository.save(p));
     }
 
@@ -91,9 +99,9 @@ public class ProductService {
     private Product.Badge parseBadge(String badge) {
         if (badge == null || badge.isBlank()) return null;
         return switch (badge) {
-            case "new" -> Product.Badge.new_;
-            case "hot" -> Product.Badge.hot;
-            default    -> null;
+            case "new"  -> Product.Badge.new_;
+            case "hot"  -> Product.Badge.hot;
+            default     -> null;
         };
     }
 }
