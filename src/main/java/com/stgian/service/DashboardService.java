@@ -6,6 +6,7 @@ import com.stgian.model.Product;
 import com.stgian.repository.OrderRepository;
 import com.stgian.repository.ProductRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -22,6 +23,7 @@ public class DashboardService {
         this.orderRepository = orderRepository;
     }
 
+    @Transactional(readOnly = true)
     public DashboardDTOs.OverviewResponse getOverview() {
         List<Product> allProducts = productRepository.findByActiveTrue();
         List<Product> lowStock    = productRepository.findByStockLessThanEqualAndActiveTrue(LOW_STOCK_THRESHOLD);

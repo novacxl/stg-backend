@@ -4,6 +4,7 @@ import com.stgian.dto.AuthDTOs;
 import com.stgian.dto.ProductDTOs;
 import com.stgian.model.Product;
 import com.stgian.model.User;
+import com.stgian.repository.OrderRepository;
 import com.stgian.repository.ProductRepository;
 import com.stgian.repository.UserRepository;
 import org.springframework.stereotype.Service;
@@ -14,21 +15,27 @@ import java.util.List;
 @Service
 public class UserService {
 
-    private final UserRepository userRepository;
+    private final UserRepository    userRepository;
     private final ProductRepository productRepository;
+    private final OrderRepository   orderRepository;
 
-    public UserService(UserRepository userRepository, ProductRepository productRepository) {
-        this.userRepository = userRepository;
+    public UserService(UserRepository userRepository,
+                       ProductRepository productRepository,
+                       OrderRepository orderRepository) {
+        this.userRepository    = userRepository;
         this.productRepository = productRepository;
+        this.orderRepository   = orderRepository;
     }
 
+    // Usa queries específicas ao invés de carregar todos os pedidos na memória
     public AuthDTOs.UserDTO getProfile(Long userId) {
         User u = getOrThrow(userId);
-        int spent = u.getOrders().stream().mapToInt(o -> o.getTotal()).sum();
+        int totalOrders = orderRepository.countByUser(u);
+        Long totalSpent = orderRepository.sumTotalByUser(u);
         return new AuthDTOs.UserDTO(
-            u.getId(), u.getName(), u.getEmail(),
+            u.getId(), u.getName(), u.getEmail(), u.getCpf(),
             u.getRole().name(), u.getCreatedAt(),
-            u.getOrders().size(), spent
+            totalOrders, totalSpent != null ? totalSpent.intValue() : 0
         );
     }
 
@@ -44,7 +51,6 @@ public class UserService {
         User u = getOrThrow(userId);
         Product p = productRepository.findById(productId)
             .orElseThrow(() -> new RuntimeException("Produto nao encontrado: " + productId));
-
         boolean alreadyIn = u.getWishlist().stream().anyMatch(x -> x.getId().equals(productId));
         if (!alreadyIn) {
             u.getWishlist().add(p);

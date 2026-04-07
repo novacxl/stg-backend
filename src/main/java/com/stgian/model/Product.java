@@ -1,9 +1,13 @@
 package com.stgian.model;
 
 import jakarta.persistence.*;
+import jakarta.persistence.Index;
 
 @Entity
-@Table(name = "products")
+@Table(name = "products", indexes = {
+    @Index(name = "idx_product_active",   columnList = "active"),
+    @Index(name = "idx_product_category", columnList = "category,active")
+})
 public class Product {
 
     @Id

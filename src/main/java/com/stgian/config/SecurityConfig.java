@@ -69,6 +69,7 @@ public class SecurityConfig {
 
             .authorizeHttpRequests(auth -> auth
                 // Público
+                .requestMatchers("/health").permitAll()
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/products", "/api/products/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/drops/active").permitAll()

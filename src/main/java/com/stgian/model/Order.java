@@ -1,13 +1,19 @@
 package com.stgian.model;
 
 import jakarta.persistence.*;
+import jakarta.persistence.Index;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 @Entity
-@Table(name = "orders")
+@Table(name = "orders", indexes = {
+    @Index(name = "idx_order_code",      columnList = "order_code"),
+    @Index(name = "idx_order_user",      columnList = "user_id"),
+    @Index(name = "idx_order_status",    columnList = "status"),
+    @Index(name = "idx_order_created",   columnList = "created_at")
+})
 public class Order {
 
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)

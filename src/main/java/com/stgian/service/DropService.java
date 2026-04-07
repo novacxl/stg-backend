@@ -15,21 +15,16 @@ public class DropService {
         this.dropRepository = dropRepository;
     }
 
-    // Retorna o drop ativo mais recente (público)
     public DropDTOs.DropResponse getActiveDrop() {
         return dropRepository.findFirstByActiveTrueOrderByCreatedAtDesc()
             .map(DropDTOs.DropResponse::from)
             .orElse(null);
     }
 
-    // Cria um novo drop (OWNER) — desativa os anteriores
     @Transactional
     public DropDTOs.DropResponse create(DropDTOs.DropRequest req) {
-        // Desativa todos os drops ativos anteriores
-        dropRepository.findAll().forEach(d -> {
-            d.setActive(false);
-            dropRepository.save(d);
-        });
+        // UPDATE em batch — uma única query ao invés de loop com N saves
+        dropRepository.deactivateAll();
 
         Drop drop = new Drop();
         applyRequest(drop, req);
@@ -37,7 +32,6 @@ public class DropService {
         return DropDTOs.DropResponse.from(dropRepository.save(drop));
     }
 
-    // Atualiza drop existente (ADMIN ou OWNER)
     @Transactional
     public DropDTOs.DropResponse update(Long id, DropDTOs.DropRequest req) {
         Drop drop = dropRepository.findById(id)
