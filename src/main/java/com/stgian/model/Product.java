@@ -1,7 +1,8 @@
 package com.stgian.model;
 
 import jakarta.persistence.*;
-import jakarta.persistence.Index;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "products", indexes = {
@@ -36,8 +37,20 @@ public class Product {
     @Column(length = 5)
     private String icon;
 
+    // Imagem principal (compatibilidade com versões anteriores)
     @Column(columnDefinition = "LONGTEXT")
     private String imageData;
+
+    // NOVO: galeria de imagens adicionais
+    // Cada imagem é armazenada como base64 em linha separada da tabela product_images
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(
+        name = "product_images",
+        joinColumns = @JoinColumn(name = "product_id")
+    )
+    @Column(name = "image_data", columnDefinition = "LONGTEXT")
+    @OrderColumn(name = "image_order")
+    private List<String> images = new ArrayList<>();
 
     @Column(nullable = false)
     private Boolean active = true;
@@ -46,73 +59,62 @@ public class Product {
 
     public enum Badge {
         new_, hot;
-        @Override
-        public String toString() { return this == new_ ? "new" : "hot"; }
+        @Override public String toString() { return this == new_ ? "new" : "hot"; }
     }
 
-    // ── Construtores ──
     public Product() {}
 
-    // ── Builder estático ──
     public static Builder builder() { return new Builder(); }
 
     public static class Builder {
-        private String name;
-        private String description;
-        private Integer price;
+        private String name, description, icon, imageData;
+        private Integer price, stock = 0;
         private Category category;
         private Badge badge;
-        private Integer stock = 0;
-        private String icon;
-        private String imageData;
         private Boolean active = true;
 
-        public Builder name(String v)        { this.name = v; return this; }
+        public Builder name(String v)        { this.name = v;        return this; }
         public Builder description(String v) { this.description = v; return this; }
-        public Builder price(Integer v)      { this.price = v; return this; }
-        public Builder category(Category v)  { this.category = v; return this; }
-        public Builder badge(Badge v)        { this.badge = v; return this; }
-        public Builder stock(Integer v)      { this.stock = v; return this; }
-        public Builder icon(String v)        { this.icon = v; return this; }
-        public Builder imageData(String v)   { this.imageData = v; return this; }
-        public Builder active(Boolean v)     { this.active = v; return this; }
+        public Builder price(Integer v)      { this.price = v;       return this; }
+        public Builder category(Category v)  { this.category = v;    return this; }
+        public Builder badge(Badge v)        { this.badge = v;       return this; }
+        public Builder stock(Integer v)      { this.stock = v;       return this; }
+        public Builder icon(String v)        { this.icon = v;        return this; }
+        public Builder imageData(String v)   { this.imageData = v;   return this; }
+        public Builder active(Boolean v)     { this.active = v;      return this; }
 
         public Product build() {
             Product p = new Product();
-            p.name = this.name;
-            p.description = this.description;
-            p.price = this.price;
-            p.category = this.category;
-            p.badge = this.badge;
-            p.stock = this.stock != null ? this.stock : 0;
-            p.icon = this.icon;
-            p.imageData = this.imageData;
-            p.active = this.active != null ? this.active : true;
+            p.name = name; p.description = description; p.price = price;
+            p.category = category; p.badge = badge;
+            p.stock = stock != null ? stock : 0;
+            p.icon = icon; p.imageData = imageData;
+            p.active = active != null ? active : true;
             return p;
         }
     }
 
-    // ── Getters ──
-    public Long getId()          { return id; }
-    public String getName()      { return name; }
+    public Long getId()           { return id; }
+    public String getName()       { return name; }
     public String getDescription(){ return description; }
-    public Integer getPrice()    { return price; }
-    public Category getCategory(){ return category; }
-    public Badge getBadge()      { return badge; }
-    public Integer getStock()    { return stock; }
-    public String getIcon()      { return icon; }
-    public String getImageData() { return imageData; }
-    public Boolean getActive()   { return active; }
+    public Integer getPrice()     { return price; }
+    public Category getCategory() { return category; }
+    public Badge getBadge()       { return badge; }
+    public Integer getStock()     { return stock; }
+    public String getIcon()       { return icon; }
+    public String getImageData()  { return imageData; }
+    public List<String> getImages(){ return images; }
+    public Boolean getActive()    { return active; }
 
-    // ── Setters ──
-    public void setId(Long id)              { this.id = id; }
-    public void setName(String v)           { this.name = v; }
-    public void setDescription(String v)    { this.description = v; }
-    public void setPrice(Integer v)         { this.price = v; }
-    public void setCategory(Category v)     { this.category = v; }
-    public void setBadge(Badge v)           { this.badge = v; }
-    public void setStock(Integer v)         { this.stock = v; }
-    public void setIcon(String v)           { this.icon = v; }
-    public void setImageData(String v)      { this.imageData = v; }
-    public void setActive(Boolean v)        { this.active = v; }
+    public void setId(Long v)              { this.id = v; }
+    public void setName(String v)          { this.name = v; }
+    public void setDescription(String v)   { this.description = v; }
+    public void setPrice(Integer v)        { this.price = v; }
+    public void setCategory(Category v)    { this.category = v; }
+    public void setBadge(Badge v)          { this.badge = v; }
+    public void setStock(Integer v)        { this.stock = v; }
+    public void setIcon(String v)          { this.icon = v; }
+    public void setImageData(String v)     { this.imageData = v; }
+    public void setImages(List<String> v)  { this.images = v; }
+    public void setActive(Boolean v)       { this.active = v; }
 }
