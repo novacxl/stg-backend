@@ -27,7 +27,7 @@ public class DashboardService {
     public DashboardDTOs.OverviewResponse getOverview() {
         List<Product> allProducts = productRepository.findByActiveTrue();
         List<Product> lowStock    = productRepository.findByStockLessThanEqualAndActiveTrue(LOW_STOCK_THRESHOLD);
-        long totalOrders          = orderRepository.count();
+        long totalOrders          = orderRepository.countPaidOrders();
         Long revenue              = orderRepository.totalRevenue();
 
         List<ProductDTOs.ProductResponse> lowStockDTOs = lowStock.stream()

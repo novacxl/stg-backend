@@ -232,16 +232,24 @@ public class OrderService {
 
         Order.Status newStatus = Order.Status.valueOf(req.status().toUpperCase());
 
-        // Ao cancelar manualmente um pedido já pago, devolve estoque
-        if (newStatus == Order.Status.CANCELLED
-                && order.getStatus() != Order.Status.CANCELLED
-                && "APPROVED".equals(order.getPaymentStatus())) {
+        // Regra de estoque ao cancelar:
+        // Só devolve estoque se o pagamento foi APROVADO (estoque já foi debitado)
+        // Se pagamento ainda está PENDING, o estoque nunca foi debitado — nada a devolver
+        boolean pagamentoAprovado = "APPROVED".equals(order.getPaymentStatus());
+        boolean cancelando        = newStatus == Order.Status.CANCELLED
+                                    && order.getStatus() != Order.Status.CANCELLED;
+
+        if (cancelando && pagamentoAprovado) {
             for (OrderItem item : order.getItems()) {
                 Product p = item.getProduct();
                 p.setStock(p.getStock() + item.getQuantity());
                 productRepository.save(p);
                 stockService.registrarDevolucao(p, item.getQuantity(), order.getOrderCode());
             }
+            log.info("Pedido " + order.getOrderCode() + " cancelado — estoque devolvido.");
+        } else if (cancelando) {
+            // Pedido pendente cancelado — estoque não foi debitado, nada a devolver
+            log.info("Pedido " + order.getOrderCode() + " cancelado sem pagamento — estoque inalterado.");
         }
 
         order.setStatus(newStatus);
