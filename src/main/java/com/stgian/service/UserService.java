@@ -27,13 +27,14 @@ public class UserService {
         this.orderRepository   = orderRepository;
     }
 
-    // Usa queries específicas ao invés de carregar todos os pedidos na memória
+    // FIX: removido u.getCpf() (campo não existe no model User)
+    // FIX: countByUser e sumTotalByUser agora existem no OrderRepository
     public AuthDTOs.UserDTO getProfile(Long userId) {
         User u = getOrThrow(userId);
         int totalOrders = orderRepository.countByUser(u);
         Long totalSpent = orderRepository.sumTotalByUser(u);
         return new AuthDTOs.UserDTO(
-            u.getId(), u.getName(), u.getEmail(), u.getCpf(),
+            u.getId(), u.getName(), u.getEmail(),
             u.getRole().name(), u.getCreatedAt(),
             totalOrders, totalSpent != null ? totalSpent.intValue() : 0
         );
