@@ -2,7 +2,6 @@ package com.stgian.repository;
 
 import com.stgian.model.Order;
 import com.stgian.model.User;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -18,18 +17,16 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     Optional<Order> findByOrderCode(String orderCode);
 
-    // FIX: adicionados countByUser e sumTotalByUser que o UserService precisa
-    @Query(value = "SELECT COUNT(*) FROM orders WHERE user_id = :#{#user.id}", nativeQuery = true)
-    int countByUser(@Param("user") User user);
-
-    @Query(value = "SELECT COALESCE(SUM(total), 0) FROM orders WHERE user_id = :#{#user.id} AND payment_status = 'APPROVED'", nativeQuery = true)
-    Long sumTotalByUser(@Param("user") User user);
-
-    // Receita total (dashboard)
-    @Query(value = "SELECT COALESCE(SUM(total), 0) FROM orders WHERE payment_status = 'APPROVED' AND status <> 'CANCELLED'", nativeQuery = true)
+    // Receita total (exclui cancelados)
+    @Query(value = "SELECT COALESCE(SUM(total), 0) FROM orders WHERE status <> 'CANCELLED'", nativeQuery = true)
     Long totalRevenue();
 
-    // Contagem de pedidos pagos (dashboard)
-    @Query(value = "SELECT COUNT(*) FROM orders WHERE payment_status = 'APPROVED'", nativeQuery = true)
-    Long countPaidOrders();
+    // PERF: conta pedidos de um usuário sem carregar os objetos Order inteiros
+    @Query("SELECT COUNT(o) FROM Order o WHERE o.user.id = :userId")
+    long countByUserId(@Param("userId") Long userId);
+
+    // PERF: soma total gasto por um usuário sem carregar os objetos Order inteiros
+    // Evita o N+1 de u.getOrders().stream().mapToInt(total).sum()
+    @Query("SELECT COALESCE(SUM(o.total), 0) FROM Order o WHERE o.user.id = :userId AND o.status <> 'CANCELLED'")
+    long totalSpentByUserId(@Param("userId") Long userId);
 }

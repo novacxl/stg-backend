@@ -15,36 +15,34 @@ import java.util.List;
 @Service
 public class UserService {
 
-    private final UserRepository    userRepository;
+    private final UserRepository   userRepository;
     private final ProductRepository productRepository;
-    private final OrderRepository   orderRepository;
+    private final OrderRepository  orderRepository;
 
     public UserService(UserRepository userRepository,
                        ProductRepository productRepository,
                        OrderRepository orderRepository) {
-        this.userRepository    = userRepository;
+        this.userRepository  = userRepository;
         this.productRepository = productRepository;
-        this.orderRepository   = orderRepository;
+        this.orderRepository = orderRepository;
     }
 
-    // FIX: removido u.getCpf() (campo não existe no model User)
-    // FIX: countByUser e sumTotalByUser agora existem no OrderRepository
+    // PERF: queries agregadas — sem N+1
     public AuthDTOs.UserDTO getProfile(Long userId) {
         User u = getOrThrow(userId);
-        int totalOrders = orderRepository.countByUser(u);
-        Long totalSpent = orderRepository.sumTotalByUser(u);
+        long totalOrders = orderRepository.countByUserId(userId);
+        long totalSpent  = orderRepository.totalSpentByUserId(userId);
         return new AuthDTOs.UserDTO(
             u.getId(), u.getName(), u.getEmail(),
             u.getRole().name(), u.getCreatedAt(),
-            totalOrders, totalSpent != null ? totalSpent.intValue() : 0
+            (int) totalOrders, (int) totalSpent
         );
     }
 
     public List<ProductDTOs.ProductResponse> getWishlist(Long userId) {
         User u = getOrThrow(userId);
         return u.getWishlist().stream()
-            .map(ProductDTOs.ProductResponse::from)
-            .toList();
+            .map(ProductDTOs.ProductResponse::from).toList();
     }
 
     @Transactional
@@ -53,10 +51,7 @@ public class UserService {
         Product p = productRepository.findById(productId)
             .orElseThrow(() -> new RuntimeException("Produto nao encontrado: " + productId));
         boolean alreadyIn = u.getWishlist().stream().anyMatch(x -> x.getId().equals(productId));
-        if (!alreadyIn) {
-            u.getWishlist().add(p);
-            userRepository.save(u);
-        }
+        if (!alreadyIn) { u.getWishlist().add(p); userRepository.save(u); }
         return getWishlist(userId);
     }
 
