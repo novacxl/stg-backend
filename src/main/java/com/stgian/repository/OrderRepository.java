@@ -14,19 +14,16 @@ import java.util.Optional;
 public interface OrderRepository extends JpaRepository<Order, Long> {
 
     List<Order> findByUserOrderByCreatedAtDesc(User user);
-
     Optional<Order> findByOrderCode(String orderCode);
 
-    // Receita total (exclui cancelados)
     @Query(value = "SELECT COALESCE(SUM(total), 0) FROM orders WHERE status <> 'CANCELLED'", nativeQuery = true)
     Long totalRevenue();
 
-    // PERF: conta pedidos de um usuário sem carregar os objetos Order inteiros
+    // Evita N+1: conta pedidos sem carregar objetos Order
     @Query("SELECT COUNT(o) FROM Order o WHERE o.user.id = :userId")
     long countByUserId(@Param("userId") Long userId);
 
-    // PERF: soma total gasto por um usuário sem carregar os objetos Order inteiros
-    // Evita o N+1 de u.getOrders().stream().mapToInt(total).sum()
+    // Evita N+1: soma gasto sem carregar objetos Order
     @Query("SELECT COALESCE(SUM(o.total), 0) FROM Order o WHERE o.user.id = :userId AND o.status <> 'CANCELLED'")
     long totalSpentByUserId(@Param("userId") Long userId);
 }

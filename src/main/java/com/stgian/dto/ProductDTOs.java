@@ -19,30 +19,34 @@ public class ProductDTOs {
         String badge,
         @Min(0) Integer stock,
         String icon,
-        // Imagem principal
         @Size(max = 2_000_000, message = "Imagem muito grande (max ~1.5MB)") String imageData,
-        // Galeria de imagens adicionais (máx 5 fotos extras)
         @Size(max = 5, message = "Máximo de 5 imagens adicionais") List<String> images
     ) {}
 
     public record StockUpdateRequest(@NotNull @Min(0) Integer stock) {}
 
-    // Versão leve para listagem — SEM imageData e SEM images (reduz payload em ~95%)
+    /**
+     * Versão para listagem — COM imageData mas SEM galeria de imagens extras.
+     * Mantém as fotos visíveis nos cards sem carregar a galeria completa.
+     */
     public record ProductSummary(
         Long id, String name, String description, Integer price,
-        String category, String badge, Integer stock, String icon, Boolean active
+        String category, String badge, Integer stock, String icon,
+        String imageData, Boolean active
     ) {
         public static ProductSummary from(Product p) {
             return new ProductSummary(
                 p.getId(), p.getName(), p.getDescription(), p.getPrice(),
                 p.getCategory() != null ? p.getCategory().name() : null,
                 p.getBadge()    != null ? p.getBadge().toString()  : null,
-                p.getStock(), p.getIcon(), p.getActive()
+                p.getStock(), p.getIcon(), p.getImageData(), p.getActive()
             );
         }
     }
 
-    // Versão completa COM imageData e galeria — usada na página do produto e admin
+    /**
+     * Versão completa COM imageData + galeria — usada na página do produto e admin.
+     */
     public record ProductResponse(
         Long id, String name, String description, Integer price,
         String category, String badge, Integer stock, String icon,

@@ -9,49 +9,34 @@ import com.stgian.repository.ProductRepository;
 import com.stgian.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.util.List;
 
 @Service
 public class UserService {
-
-    private final UserRepository   userRepository;
+    private final UserRepository userRepository;
     private final ProductRepository productRepository;
-    private final OrderRepository  orderRepository;
+    private final OrderRepository orderRepository;
 
-    public UserService(UserRepository userRepository,
-                       ProductRepository productRepository,
-                       OrderRepository orderRepository) {
-        this.userRepository  = userRepository;
-        this.productRepository = productRepository;
-        this.orderRepository = orderRepository;
+    public UserService(UserRepository userRepository, ProductRepository productRepository, OrderRepository orderRepository) {
+        this.userRepository = userRepository; this.productRepository = productRepository; this.orderRepository = orderRepository;
     }
 
-    // PERF: queries agregadas — sem N+1
     public AuthDTOs.UserDTO getProfile(Long userId) {
         User u = getOrThrow(userId);
-        long totalOrders = orderRepository.countByUserId(userId);
-        long totalSpent  = orderRepository.totalSpentByUserId(userId);
-        return new AuthDTOs.UserDTO(
-            u.getId(), u.getName(), u.getEmail(),
-            u.getRole().name(), u.getCreatedAt(),
-            (int) totalOrders, (int) totalSpent
-        );
+        long orders = orderRepository.countByUserId(userId);
+        long spent  = orderRepository.totalSpentByUserId(userId);
+        return new AuthDTOs.UserDTO(u.getId(), u.getName(), u.getEmail(), u.getRole().name(), u.getCreatedAt(), (int) orders, (int) spent);
     }
 
     public List<ProductDTOs.ProductResponse> getWishlist(Long userId) {
-        User u = getOrThrow(userId);
-        return u.getWishlist().stream()
-            .map(ProductDTOs.ProductResponse::from).toList();
+        return getOrThrow(userId).getWishlist().stream().map(ProductDTOs.ProductResponse::from).toList();
     }
 
     @Transactional
     public List<ProductDTOs.ProductResponse> addToWishlist(Long userId, Long productId) {
         User u = getOrThrow(userId);
-        Product p = productRepository.findById(productId)
-            .orElseThrow(() -> new RuntimeException("Produto nao encontrado: " + productId));
-        boolean alreadyIn = u.getWishlist().stream().anyMatch(x -> x.getId().equals(productId));
-        if (!alreadyIn) { u.getWishlist().add(p); userRepository.save(u); }
+        Product p = productRepository.findById(productId).orElseThrow(() -> new RuntimeException("Produto nao encontrado: " + productId));
+        if (u.getWishlist().stream().noneMatch(x -> x.getId().equals(productId))) { u.getWishlist().add(p); userRepository.save(u); }
         return getWishlist(userId);
     }
 
@@ -64,7 +49,6 @@ public class UserService {
     }
 
     private User getOrThrow(Long id) {
-        return userRepository.findById(id)
-            .orElseThrow(() -> new RuntimeException("Usuario nao encontrado: " + id));
+        return userRepository.findById(id).orElseThrow(() -> new RuntimeException("Usuario nao encontrado: " + id));
     }
 }
