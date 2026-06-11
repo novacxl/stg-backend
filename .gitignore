@@ -1,5 +1,14 @@
-# FIX-CRITICO-6: target/ NUNCA deve ser versionado
+
+# NUNCA vai para o GitHub
+src/main/resources/application.properties
+
+# Compilados e IDE
 target/
+*.class
+*.jar
+.idea/
+*.iml
+.vscode
 
 # Credenciais locais
 *.properties.local
