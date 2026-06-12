@@ -33,7 +33,7 @@
 ## ⚙️ Como rodar localmente
 
 ```bash
-git clone https://github.com/SEU-USUARIO/stgian-backend
+git clone https://github.com/novacxl/stg-backend
 # Configure application.properties com base no application.properties.example
 mvn spring-boot:run
 # Abra stgian_integrado.html com Live Server
